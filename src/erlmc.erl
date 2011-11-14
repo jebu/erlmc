@@ -34,7 +34,7 @@
 -export([get/1, get/2, get_many/1, add/2, add/3, set/2, set/3, 
 		 replace/2, replace/3, delete/1, increment/4, decrement/4,
 		 append/2, prepend/2, stats/0, stats/2, flush/0, flush/1, quit/0, 
-		 version/0]).
+		 setq/2, setq/3, version/0]).
 
 -include("erlmc.hrl").
 
@@ -121,6 +121,13 @@ set(Key, Value) ->
 set(Key0, Value, Expiration) when is_binary(Value), is_integer(Expiration) ->
 	Key = package_key(Key0),
     call(map_key(Key), {set, Key, Value, Expiration}, ?TIMEOUT).
+    
+setq(Key, Value) ->
+	setq(Key, Value, 0).
+	
+setq(Key0, Value, Expiration) when is_binary(Value), is_integer(Expiration) ->
+	Key = package_key(Key0),
+    call(map_key(Key), {setq, Key, Value, Expiration}, ?TIMEOUT).
     
 replace(Key, Value) ->
 	replace(Key, Value, 0).

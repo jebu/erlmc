@@ -105,6 +105,10 @@ handle_call({set, Key, Value, Expiration}, _From, Socket) ->
     		{reply, Resp#response.value, Socket}
 	end;
 
+handle_call({setq, Key, Value, Expiration}, _From, Socket) ->
+	send(Socket, #request{op_code=?OP_SetQ, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}),
+  {reply, ok, Socket};
+
 handle_call({replace, Key, Value, Expiration}, _From, Socket) ->
 	case send_recv(Socket, #request{op_code=?OP_Replace, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}) of
 		{error, Err} ->

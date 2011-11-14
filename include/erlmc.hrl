@@ -16,6 +16,10 @@
 -define(OP_Append,    16#0E).
 -define(OP_Prepend,   16#0F).
 -define(OP_Stat,      16#10).
+-define(OP_SetQ,      16#11).
+-define(OP_AddQ,      16#12).
+-define(OP_ReplaceQ,  16#13).
+-define(OP_DeleteQ,   16#14).
 
 -record(request, {op_code, data_type=16#00, reserved=16#00, opaque=16#00, cas=16#00, extras = <<>>, key = <<>>, value = <<>>}).
 -record(response, {op_code, data_type, status, opaque, cas, extras, key, value, key_size, extras_size, body_size}).
