@@ -105,10 +105,6 @@ handle_call({set, Key, Value, Expiration}, _From, Socket) ->
     		{reply, Resp#response.value, Socket}
 	end;
 
-handle_call({setq, Key, Value, Expiration}, _From, Socket) ->
-	send(Socket, #request{op_code=?OP_SetQ, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}),
-  {reply, ok, Socket};
-
 handle_call({replace, Key, Value, Expiration}, _From, Socket) ->
 	case send_recv(Socket, #request{op_code=?OP_Replace, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}) of
 		{error, Err} ->
@@ -204,6 +200,20 @@ handle_call(_, _From, Socket) -> {reply, {error, invalid_call}, Socket}.
 %% Description: Handling cast messages
 %% @hidden
 %%--------------------------------------------------------------------
+handle_cast({setq, Key, Value, Expiration}, Socket) ->
+  % set will always succeed
+	send(Socket, #request{op_code=?OP_SetQ, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}),
+  {noreply, Socket};
+
+handle_cast({deleteq, Key}, Socket) ->
+  %a not found key could cause and error so we dont do a quiet variant
+	case send_recv(Socket, #request{op_code=?OP_Delete, key=list_to_binary(Key)}) of
+		{error, Err} ->
+			{stop, Err, {error, Err}, Socket};
+		_Resp ->
+   		{noreply, Socket}
+	end;
+
 handle_cast(_Message, State) -> {noreply, State}.
 
 %%--------------------------------------------------------------------
