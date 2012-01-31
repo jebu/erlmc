@@ -209,9 +209,17 @@ handle_cast({deleteq, Key}, Socket) ->
   %a not found key could cause and error so we dont do a quiet variant
 	case send_recv(Socket, #request{op_code=?OP_Delete, key=list_to_binary(Key)}) of
 		{error, Err} ->
-			{stop, Err, {error, Err}, Socket};
+			{stop, Err, Socket};
 		_Resp ->
    		{noreply, Socket}
+	end;
+
+handle_cast({replaceq, Key, Value, Expiration}, Socket) ->
+	case send_recv(Socket, #request{op_code=?OP_Replace, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}) of
+		{error, Err} ->
+			{stop, Err, Socket};
+		_Resp ->
+    		{noreply, Socket}
 	end;
 
 handle_cast(_Message, State) -> {noreply, State}.
