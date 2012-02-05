@@ -67,17 +67,9 @@ init([Host, Port]) ->
 %% Description: Handling call messages
 %% @hidden
 %%--------------------------------------------------------------------    
-handle_call({get, Key}, _From, Socket) ->
-  case send_recv(Socket, #request{op_code=?OP_GetK, key=list_to_binary(Key)}) of
-    {error, Err} ->
-      {stop, Err, {error, Err}, Socket};
-    #response{key=Key1, value=Value} ->
-      case binary_to_list(Key1) of
-        Key -> {reply, Value, Socket};
-        _ -> {reply, <<>>, Socket}
-      end
-	end;
-    
+handle_call({get, Key}, From, Socket) ->
+  pipeline_get({Key, From}, [], Socket);
+% 
 handle_call({get_many, []}, _From, Socket) -> {reply, [], Socket};
 handle_call({get_many, Keys}, _From, Socket) ->
   [send(Socket, #request{op_code=?OP_GetK, key=list_to_binary(Key)}) || Key <- Keys], 
@@ -270,16 +262,18 @@ collect_stats_from_socket(Socket, Acc) ->
             collect_stats_from_socket(Socket, [{binary_to_atom(Key, utf8), binary_to_list(Value)}|Acc])
     end.
 
-send_recv(Socket, Request) ->
+send_recv(Socket, Request) -> send_recv(Socket, Request, infinity).
+send_recv(Socket, Request, Timeout) ->
     ok = send(Socket, Request),
-    recv(Socket).
+    recv(Socket, Timeout).
     
 send(Socket, Request) ->
     Bin = encode_request(Request),
     gen_tcp:send(Socket, Bin).
 
-recv(Socket) ->
-    case recv_header(Socket) of
+recv(Socket) -> recv(Socket, infinity).
+recv(Socket, Timeout) ->
+    case recv_header(Socket, Timeout) of
 		{error, Err} ->
 			{error, Err};
 		HdrResp ->
@@ -300,8 +294,8 @@ encode_request(Request) when is_record(Request, request) ->
     CAS = Request#request.cas,
     <<Magic:8, Opcode:8, KeySize:16, ExtrasSize:8, DataType:8, Reserved:16, BodySize:32, Opaque:32, CAS:64, Body:BodySize/binary>>.
 
-recv_header(Socket) ->
-    decode_response_header(recv_bytes(Socket, 24)).
+recv_header(Socket, Timeout) ->
+    decode_response_header(recv_bytes(Socket, 24, Timeout)).
   
 recv_body(Socket, #response{key_size = KeySize, extras_size = ExtrasSize, body_size = BodySize}=Resp) ->
     decode_response_body(recv_bytes(Socket, BodySize), ExtrasSize, KeySize, Resp).
@@ -329,8 +323,9 @@ decode_response_body(Bin, ExtrasSize, KeySize, Resp) ->
     }.
 
 recv_bytes(_, 0) -> <<>>;
-recv_bytes(Socket, NumBytes) ->
-    case gen_tcp:recv(Socket, NumBytes) of
+recv_bytes(Socket, NumBytes) -> recv_bytes(Socket, NumBytes, infinity).
+recv_bytes(Socket, NumBytes, Timeout) ->
+    case gen_tcp:recv(Socket, NumBytes, Timeout) of
         {ok, Bin} -> Bin;
         Err -> Err
     end.
@@ -342,4 +337,29 @@ read_pipelined(Socket, StopOp, Acc) ->
     #response{key=_, value= <<>>} -> read_pipelined(Socket, StopOp, Acc);
     #response{key=Key, value=Value} -> read_pipelined(Socket, StopOp, [{binary_to_list(Key), Value} | Acc])
 	end.
-  
+%  
+pipeline_get({Key, From}, PList, Socket) ->
+  send(Socket, #request{op_code=?OP_GetK, key=list_to_binary(Key)}),
+  pipeline_get(undefined, PList ++ [{Key, From}], Socket);
+pipeline_get(undefined, [], Socket) -> {noreply, Socket};
+pipeline_get(undefined, [{Key, From}|Rest]=PList, Socket) ->
+  case recv(Socket, 5) of
+    {error, timeout} ->
+      receive
+        {'$gen_call', NFrom, {get, NKey}} -> pipeline_get({NKey, NFrom}, PList, Socket)
+      after
+        0 -> pipeline_get(undefined, PList, Socket)
+      end;
+    {error, Err} ->
+      {stop, Err, {error, Err}, Socket};
+    #response{key=Key1, value=Value} ->
+      case binary_to_list(Key1) of
+        Key ->
+          gen_server:reply(From, Value),
+          pipeline_get(undefined, Rest, Socket);
+        _ ->
+          gen_server:reply(From, <<>>),
+          pipeline_get(undefined, Rest, Socket)
+      end
+	end.
+%
