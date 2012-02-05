@@ -50,9 +50,9 @@ start_link([Host, Port]) ->
 %% @hidden
 %%--------------------------------------------------------------------
 init([Host, Port]) ->
-	case gen_tcp:connect(Host, Port, [binary, {packet, 0}, {active, false}]) of
+	case gen_tcp:connect(Host, Port, [binary, {packet, 0}, {active, once}]) of
         {ok, Socket} -> 
-			{ok, Socket};
+			{ok, {Socket, []}};
         Error -> 
 			exit(Error)
     end.
@@ -67,123 +67,76 @@ init([Host, Port]) ->
 %% Description: Handling call messages
 %% @hidden
 %%--------------------------------------------------------------------    
-handle_call({get, Key}, From, Socket) ->
-  pipeline_get({Key, From}, [], Socket);
+handle_call({get, Key}, From, {Socket, Queue}) ->
+  send(Socket, #request{op_code=?OP_GetK, key=list_to_binary(Key)}),
+  {noreply, {Socket, Queue ++ [{get, Key, From}]}};
 % 
-handle_call({get_many, []}, _From, Socket) -> {reply, [], Socket};
-handle_call({get_many, Keys}, _From, Socket) ->
+handle_call({get_many, []}, _From, Socket) -> 
+  {reply, [], Socket};
+%
+handle_call({get_many, Keys}, From, {Socket, Queue}) ->
   [send(Socket, #request{op_code=?OP_GetK, key=list_to_binary(Key)}) || Key <- Keys], 
   send(Socket, #request{op_code=?OP_Noop}),
-
-  case read_pipelined(Socket, ?OP_Noop, []) of
-    {error, Err} -> {stop, Err, {error, Err}, Socket};
-    Resp -> 
-      {reply, Resp, Socket}
-	end;
-
-handle_call({add, Key, Value, Expiration}, _From, Socket) ->
-    case send_recv(Socket, #request{op_code=?OP_Add, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}) of
-		{error, Err} ->
-			{stop, Err, {error, Err}, Socket};
-		Resp ->
-    		{reply, Resp#response.value, Socket}
-	end;
-    
-handle_call({set, Key, Value, Expiration}, _From, Socket) ->
-	case send_recv(Socket, #request{op_code=?OP_Set, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}) of
-		{error, Err} ->
-			{stop, Err, {error, Err}, Socket};
-		Resp ->
-    		{reply, Resp#response.value, Socket}
-	end;
-
-handle_call({replace, Key, Value, Expiration}, _From, Socket) ->
-	case send_recv(Socket, #request{op_code=?OP_Replace, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}) of
-		{error, Err} ->
-			{stop, Err, {error, Err}, Socket};
-		Resp ->
-    		{reply, Resp#response.value, Socket}
-	end;
-
-handle_call({delete, Key}, _From, Socket) ->
-	case send_recv(Socket, #request{op_code=?OP_Delete, key=list_to_binary(Key)}) of
-		{error, Err} ->
-			{stop, Err, {error, Err}, Socket};
-		Resp ->
-    		{reply, Resp#response.value, Socket}
-	end;
-
-handle_call({increment, Key, Value, Initial, Expiration}, _From, Socket) ->
-	case send_recv(Socket, #request{op_code=?OP_Increment, extras = <<Value:64, Initial:64, Expiration:32>>, key=list_to_binary(Key)}) of
-		{error, Err} ->
-			{stop, Err, {error, Err}, Socket};
-		Resp ->
-    		{reply, Resp#response.value, Socket}
-	end;
-	
-handle_call({decrement, Key, Value, Initial, Expiration}, _From, Socket) ->
-	case send_recv(Socket, #request{op_code=?OP_Decrement, extras = <<Value:64, Initial:64, Expiration:32>>, key=list_to_binary(Key)}) of
-		{error, Err} ->
-			{stop, Err, {error, Err}, Socket};
-		Resp ->
-    		{reply, Resp#response.value, Socket}
-	end;
-
-handle_call({append, Key, Value}, _From, Socket) ->
-	case send_recv(Socket, #request{op_code=?OP_Append, key=list_to_binary(Key), value=Value}) of
-		{error, Err} ->
-			{stop, Err, {error, Err}, Socket};
-		Resp ->
-    		{reply, Resp#response.value, Socket}
-	end;
-
-handle_call({prepend, Key, Value}, _From, Socket) ->
-	case send_recv(Socket, #request{op_code=?OP_Prepend, key=list_to_binary(Key), value=Value}) of
-		{error, Err} ->
-			{stop, Err, {error, Err}, Socket};
-		Resp ->
-    		{reply, Resp#response.value, Socket}
-	end;
-	
-handle_call(stats, _From, Socket) ->
+  {noreply, {Socket, Queue ++ [{get_many, From}]}};
+%
+handle_call({add, Key, Value, Expiration}, From, {Socket, Queue}) ->
+  send(Socket, 
+    #request{op_code=?OP_Add, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}),
+  {noreply, {Socket, Queue ++[{add, Key, From}]}};
+%    
+handle_call({set, Key, Value, Expiration}, From, {Socket, Queue}) ->
+	send(Socket, 
+    #request{op_code=?OP_Set, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}),
+  {noreply, {Socket, Queue ++[{set, Key, From}]}};
+%
+handle_call({replace, Key, Value, Expiration}, From, {Socket, Queue}) ->
+	send(Socket, 
+    #request{op_code=?OP_Replace, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}),
+  {noreply, {Socket, Queue ++[{replace, Key, From}]}};
+%
+handle_call({delete, Key}, From, {Socket, Queue}) ->
+	send(Socket, #request{op_code=?OP_Delete, key=list_to_binary(Key)}),
+  {noreply, {Socket, Queue ++[{delete, Key, From}]}};
+%
+handle_call({increment, Key, Value, Initial, Expiration}, From, {Socket, Queue}) ->
+	send(Socket, 
+    #request{op_code=?OP_Increment, extras = <<Value:64, Initial:64, Expiration:32>>, key=list_to_binary(Key)}),
+  {noreply, {Socket, Queue ++[{increment, Key, From}]}};
+%
+handle_call({decrement, Key, Value, Initial, Expiration}, From, {Socket, Queue}) ->
+	send(Socket, 
+    #request{op_code=?OP_Decrement, extras = <<Value:64, Initial:64, Expiration:32>>, key=list_to_binary(Key)}),
+  {noreply, {Socket, Queue ++[{decrement, Key, From}]}};
+%
+handle_call({append, Key, Value}, From, {Socket, Queue}) ->
+	send(Socket, #request{op_code=?OP_Append, key=list_to_binary(Key), value=Value}),
+  {noreply, {Socket, Queue ++[{append, Key, From}]}};
+%
+handle_call({prepend, Key, Value}, From, {Socket, Queue}) ->
+	send(Socket, #request{op_code=?OP_Prepend, key=list_to_binary(Key), value=Value}),
+  {noreply, {Socket, Queue ++[{prepend, Key, From}]}};
+%
+handle_call(stats, From, {Socket, Queue}) ->
 	send(Socket, #request{op_code=?OP_Stat}),
-    case collect_stats_from_socket(Socket) of
-		{error, Err} ->
-			{stop, Err, {error, Err}, Socket};
-		Reply ->
-    		{reply, Reply, Socket}
-	end;
-
-handle_call(flush, _From, Socket) ->
-	case send_recv(Socket, #request{op_code=?OP_Flush}) of
-		{error, Err} ->
-			{stop, Err, {error, Err}, Socket};
-		Resp ->
-    		{reply, Resp#response.value, Socket}
-	end;
-        
-handle_call({flush, Expiration}, _From, Socket) ->
-	case send_recv(Socket, #request{op_code=?OP_Flush, extras = <<Expiration:32>>}) of
-		{error, Err} ->
-			{stop, Err, {error, Err}, Socket};
-		Resp ->
-    		{reply, Resp#response.value, Socket}
-	end;
-    
-handle_call(quit, _From, Socket) ->
-	send_recv(Socket, #request{op_code=?OP_Quit}),
-	gen_tcp:close(Socket),
-    {stop, shutdown, undefined};
-    
-handle_call(version, _From, Socket) ->
-	case send_recv(Socket, #request{op_code=?OP_Version}) of
-		{error, Err} ->
-			{stop, Err, {error, Err}, Socket};
-		Resp ->
-    		{reply, Resp#response.value, Socket}
-	end;
-	
-handle_call(_, _From, Socket) -> {reply, {error, invalid_call}, Socket}.
+  {noreply, {Socket, Queue ++[{stats, From}]}};
+%
+handle_call(flush, From, {Socket, Queue}) ->
+	send(Socket, #request{op_code=?OP_Flush}),
+  {noreply, {Socket, Queue ++[{flush, undefined, From}]}};
+%
+handle_call({flush, Expiration}, From, {Socket, Queue}) ->
+	send(Socket, #request{op_code=?OP_Flush, extras = <<Expiration:32>>}),
+  {noreply, {Socket, Queue ++[{flush, undefined, From}]}};
+%   
+handle_call(quit, _From, {Socket, Queue}) ->
+	send(Socket, #request{op_code=?OP_Quit}),
+  {noreply, {Socket, Queue ++[close]}};
+%    
+handle_call(version, From, {Socket, Queue}) ->
+	send(Socket, #request{op_code=?OP_Version}),
+  {noreply, {Socket, Queue ++[{version, undefined, From}]}};
+%	
+handle_call(_, _From, State) -> {reply, {error, invalid_call}, State}.
 
 %%--------------------------------------------------------------------
 %% Function: handle_cast(Msg, State) -> {noreply, State} |
@@ -192,28 +145,22 @@ handle_call(_, _From, Socket) -> {reply, {error, invalid_call}, Socket}.
 %% Description: Handling cast messages
 %% @hidden
 %%--------------------------------------------------------------------
-handle_cast({setq, Key, Value, Expiration}, Socket) ->
+handle_cast({setq, Key, Value, Expiration}, {Socket, Queue}) ->
   % set will always succeed
-	send(Socket, #request{op_code=?OP_SetQ, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}),
-  {noreply, Socket};
-
-handle_cast({deleteq, Key}, Socket) ->
+	send(Socket, 
+    #request{op_code=?OP_SetQ, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}),
+  {noreply, {Socket, Queue}};
+%
+handle_cast({deleteq, Key}, {Socket, Queue}) ->
   %a not found key could cause and error so we dont do a quiet variant
-	case send_recv(Socket, #request{op_code=?OP_Delete, key=list_to_binary(Key)}) of
-		{error, Err} ->
-			{stop, Err, Socket};
-		_Resp ->
-   		{noreply, Socket}
-	end;
-
-handle_cast({replaceq, Key, Value, Expiration}, Socket) ->
-	case send_recv(Socket, #request{op_code=?OP_Replace, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}) of
-		{error, Err} ->
-			{stop, Err, Socket};
-		_Resp ->
-    		{noreply, Socket}
-	end;
-
+	send(Socket, #request{op_code=?OP_Delete, key=list_to_binary(Key)}),
+  {noreply, {Socket, Queue ++ [undefined]}};
+%
+handle_cast({replaceq, Key, Value, Expiration}, {Socket, Queue}) ->
+	send(Socket, 
+    #request{op_code=?OP_Replace, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}),
+  {noreply, {Socket, Queue ++ [undefined]}};
+%
 handle_cast(_Message, State) -> {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -223,8 +170,16 @@ handle_cast(_Message, State) -> {noreply, State}.
 %% Description: Handling all non call/cast messages
 %% @hidden
 %%--------------------------------------------------------------------
+handle_info({tcp_closed, Socket}, {Socket, _}) -> 
+	gen_tcp:close(Socket),
+  {stop, shutdown, undefined};
+%
+handle_info({tcp, Socket, Data}, {Socket, Queue}) -> 
+  gen_tcp:unrecv(Socket, Data),
+  check_receive(Socket, Queue);
+%
 handle_info(_Info, State) -> {noreply, State}.
-
+%
 %%--------------------------------------------------------------------
 %% Function: terminate(Reason, State) -> void()
 %% Description: This function is called by a gen_server when it is about to
@@ -249,29 +204,19 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------     
-collect_stats_from_socket(Socket) ->
-    collect_stats_from_socket(Socket, []).
-    
-collect_stats_from_socket(Socket, Acc) ->
-    case recv(Socket) of
-		{error, Err} -> 
-			{error, Err};
-        #response{body_size=0} ->
-            Acc;
-        #response{key=Key, value=Value} ->
-            collect_stats_from_socket(Socket, [{binary_to_atom(Key, utf8), binary_to_list(Value)}|Acc])
-    end.
-
-send_recv(Socket, Request) -> send_recv(Socket, Request, infinity).
-send_recv(Socket, Request, Timeout) ->
-    ok = send(Socket, Request),
-    recv(Socket, Timeout).
-    
+collect_stats_from_socket(Socket, Acc) -> collect_stats_from_socket(Socket, Acc, infinity).
+collect_stats_from_socket(Socket, Acc, Timeout) ->
+  case recv(Socket, Timeout) of
+		{error, Err} -> {error, Err};
+    #response{body_size=0} -> Acc;
+    #response{key=Key, value=Value} ->
+      collect_stats_from_socket(Socket, [{binary_to_atom(Key, utf8), binary_to_list(Value)}|Acc])
+  end.
+%
 send(Socket, Request) ->
     Bin = encode_request(Request),
     gen_tcp:send(Socket, Bin).
 
-recv(Socket) -> recv(Socket, infinity).
 recv(Socket, Timeout) ->
     case recv_header(Socket, Timeout) of
 		{error, Err} ->
@@ -330,36 +275,74 @@ recv_bytes(Socket, NumBytes, Timeout) ->
         Err -> Err
     end.
 
-read_pipelined(Socket, StopOp, Acc) ->
-  case recv(Socket) of
+read_pipelined(Socket, StopOp, Acc) -> read_pipelined(Socket, StopOp, Acc, infinity).
+read_pipelined(Socket, StopOp, Acc, Timeout) ->
+  case recv(Socket, Timeout) of
     {error, Err} -> {error, Err};
     #response{op_code = StopOp} -> Acc;
     #response{key=_, value= <<>>} -> read_pipelined(Socket, StopOp, Acc);
     #response{key=Key, value=Value} -> read_pipelined(Socket, StopOp, [{binary_to_list(Key), Value} | Acc])
 	end.
 %  
-pipeline_get({Key, From}, PList, Socket) ->
-  send(Socket, #request{op_code=?OP_GetK, key=list_to_binary(Key)}),
-  pipeline_get(undefined, PList ++ [{Key, From}], Socket);
-pipeline_get(undefined, [], Socket) -> {noreply, Socket};
-pipeline_get(undefined, [{Key, From}|Rest]=PList, Socket) ->
-  case recv(Socket, 5) of
-    {error, timeout} ->
-      receive
-        {'$gen_call', NFrom, {get, NKey}} -> pipeline_get({NKey, NFrom}, PList, Socket)
-      after
-        0 -> pipeline_get(undefined, PList, Socket)
-      end;
+recv_queued_response({get, Key, From}, Socket, Timeout) ->
+  case recv(Socket,Timeout) of
+    {error, timeout} -> {error, timeout};
     {error, Err} ->
       {stop, Err, {error, Err}, Socket};
     #response{key=Key1, value=Value} ->
       case binary_to_list(Key1) of
-        Key ->
-          gen_server:reply(From, Value),
-          pipeline_get(undefined, Rest, Socket);
-        _ ->
-          gen_server:reply(From, <<>>),
-          pipeline_get(undefined, Rest, Socket)
-      end
+        Key -> gen_server:reply(From, Value);
+        _ -> gen_server:reply(From, <<>>)
+      end,
+      ok
+	end;
+recv_queued_response({get_many, From}, Socket, Timeout) ->
+  case read_pipelined(Socket, ?OP_Noop, [], Timeout) of
+    {error, timeout} -> {error, timeout};
+    {error, Err} -> {stop, Err, {error, Err}, Socket};
+    Resp -> 
+      gen_server:reply(From, Resp),
+      ok
+	end;
+recv_queued_response({stats, From}, Socket, Timeout) ->
+  case collect_stats_from_socket(Socket, [], Timeout) of
+    {error, timeout} -> {error, timeout};
+		{error, Err} -> {stop, Err, {error, Err}, Socket};
+		Reply -> 
+      gen_server:reply(From, Reply),
+      ok
+	end;
+recv_queued_response(close, Socket, Timeout) ->
+  case recv(Socket, Timeout) of
+    {error, timeout} -> {error, timeout};
+		{error, Err} -> {stop, Err, {error, Err}, Socket};
+    _ ->
+	    gen_tcp:close(Socket),
+      {stop, shutdown, undefined}
+  end;
+recv_queued_response(undefined, Socket, Timeout) ->
+  case recv(Socket, Timeout) of
+    {error, timeout} -> {error, timeout};
+		{error, Err} -> {stop, Err, {error, Err}, Socket};
+		_Resp -> ok
+	end;
+recv_queued_response({_, _, From}, Socket, Timeout) ->
+  case recv(Socket, Timeout) of
+    {error, timeout} -> {error, timeout};
+		{error, Err} -> {stop, Err, {error, Err}, Socket};
+		Resp -> 
+      gen_server:reply(From, Resp#response.value),
+      ok
 	end.
-%
+%  
+check_receive(Socket, []) ->
+  inet:setopts(Socket, [{active, once}]),
+  {noreply, {Socket, []}};
+check_receive(Socket, [QueuedOp | Rest]) ->
+  case recv_queued_response(QueuedOp, Socket, 0) of
+    {error, timeout} ->
+      inet:setopts(Socket, [{active, once}]),
+      {noreply, {Socket, []}};
+    ok -> check_receive(Socket, Rest);
+    Resp -> Resp
+  end.
