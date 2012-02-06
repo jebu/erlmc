@@ -82,39 +82,39 @@ handle_call({get_many, Keys}, From, {Socket, Queue}) ->
 handle_call({add, Key, Value, Expiration}, From, {Socket, Queue}) ->
   send(Socket, 
     #request{op_code=?OP_Add, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}),
-  {noreply, {Socket, Queue ++[{add, Key, From}]}};
+  {noreply, {Socket, Queue ++[{add, From}]}};
 %    
 handle_call({set, Key, Value, Expiration}, From, {Socket, Queue}) ->
 	send(Socket, 
     #request{op_code=?OP_Set, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}),
-  {noreply, {Socket, Queue ++[{set, Key, From}]}};
+  {noreply, {Socket, Queue ++[{set, From}]}};
 %
 handle_call({replace, Key, Value, Expiration}, From, {Socket, Queue}) ->
 	send(Socket, 
     #request{op_code=?OP_Replace, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}),
-  {noreply, {Socket, Queue ++[{replace, Key, From}]}};
+  {noreply, {Socket, Queue ++[{replace, From}]}};
 %
 handle_call({delete, Key}, From, {Socket, Queue}) ->
 	send(Socket, #request{op_code=?OP_Delete, key=list_to_binary(Key)}),
-  {noreply, {Socket, Queue ++[{delete, Key, From}]}};
+  {noreply, {Socket, Queue ++[{delete, From}]}};
 %
 handle_call({increment, Key, Value, Initial, Expiration}, From, {Socket, Queue}) ->
 	send(Socket, 
     #request{op_code=?OP_Increment, extras = <<Value:64, Initial:64, Expiration:32>>, key=list_to_binary(Key)}),
-  {noreply, {Socket, Queue ++[{increment, Key, From}]}};
+  {noreply, {Socket, Queue ++[{increment, From}]}};
 %
 handle_call({decrement, Key, Value, Initial, Expiration}, From, {Socket, Queue}) ->
 	send(Socket, 
     #request{op_code=?OP_Decrement, extras = <<Value:64, Initial:64, Expiration:32>>, key=list_to_binary(Key)}),
-  {noreply, {Socket, Queue ++[{decrement, Key, From}]}};
+  {noreply, {Socket, Queue ++[{decrement, From}]}};
 %
 handle_call({append, Key, Value}, From, {Socket, Queue}) ->
 	send(Socket, #request{op_code=?OP_Append, key=list_to_binary(Key), value=Value}),
-  {noreply, {Socket, Queue ++[{append, Key, From}]}};
+  {noreply, {Socket, Queue ++[{append, From}]}};
 %
 handle_call({prepend, Key, Value}, From, {Socket, Queue}) ->
 	send(Socket, #request{op_code=?OP_Prepend, key=list_to_binary(Key), value=Value}),
-  {noreply, {Socket, Queue ++[{prepend, Key, From}]}};
+  {noreply, {Socket, Queue ++[{prepend, From}]}};
 %
 handle_call(stats, From, {Socket, Queue}) ->
 	send(Socket, #request{op_code=?OP_Stat}),
@@ -122,11 +122,11 @@ handle_call(stats, From, {Socket, Queue}) ->
 %
 handle_call(flush, From, {Socket, Queue}) ->
 	send(Socket, #request{op_code=?OP_Flush}),
-  {noreply, {Socket, Queue ++[{flush, undefined, From}]}};
+  {noreply, {Socket, Queue ++[{flush, From}]}};
 %
 handle_call({flush, Expiration}, From, {Socket, Queue}) ->
 	send(Socket, #request{op_code=?OP_Flush, extras = <<Expiration:32>>}),
-  {noreply, {Socket, Queue ++[{flush, undefined, From}]}};
+  {noreply, {Socket, Queue ++[{flush, From}]}};
 %   
 handle_call(quit, _From, {Socket, Queue}) ->
 	send(Socket, #request{op_code=?OP_Quit}),
@@ -134,7 +134,7 @@ handle_call(quit, _From, {Socket, Queue}) ->
 %    
 handle_call(version, From, {Socket, Queue}) ->
 	send(Socket, #request{op_code=?OP_Version}),
-  {noreply, {Socket, Queue ++[{version, undefined, From}]}};
+  {noreply, {Socket, Queue ++[{version, From}]}};
 %	
 handle_call(_, _From, State) -> {reply, {error, invalid_call}, State}.
 
@@ -287,8 +287,7 @@ read_pipelined(Socket, StopOp, Acc, Timeout) ->
 recv_queued_response({get, Key, From}, Socket, Timeout) ->
   case recv(Socket,Timeout) of
     {error, timeout} -> {error, timeout};
-    {error, Err} ->
-      {stop, Err, {error, Err}, Socket};
+    {error, Err} -> {stop, Err, {error, Err}, Socket};
     #response{key=Key1, value=Value} ->
       case binary_to_list(Key1) of
         Key -> gen_server:reply(From, Value);
@@ -326,7 +325,7 @@ recv_queued_response(undefined, Socket, Timeout) ->
 		{error, Err} -> {stop, Err, {error, Err}, Socket};
 		_Resp -> ok
 	end;
-recv_queued_response({_, _, From}, Socket, Timeout) ->
+recv_queued_response({_, From}, Socket, Timeout) ->
   case recv(Socket, Timeout) of
     {error, timeout} -> {error, timeout};
 		{error, Err} -> {stop, Err, {error, Err}, Socket};
@@ -339,7 +338,7 @@ check_receive(Socket, []) ->
   inet:setopts(Socket, [{active, once}]),
   {noreply, {Socket, []}};
 check_receive(Socket, [QueuedOp | Rest]) ->
-  case recv_queued_response(QueuedOp, Socket, 0) of
+  case recv_queued_response(QueuedOp, Socket, 1) of
     {error, timeout} ->
       inet:setopts(Socket, [{active, once}]),
       {noreply, {Socket, []}};
