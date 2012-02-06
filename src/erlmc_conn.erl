@@ -338,11 +338,11 @@ recv_queued_response({_, From}, Socket, Timeout) ->
 check_receive(Socket, []) ->
   inet:setopts(Socket, [{active, once}]),
   {noreply, {Socket, []}};
-check_receive(Socket, [QueuedOp | Rest]) ->
-  case recv_queued_response(QueuedOp, Socket, 1) of
+check_receive(Socket, Queue = [QueuedOp | Rest]) ->
+  case recv_queued_response(QueuedOp, Socket, 0) of
     {error, timeout} ->
       inet:setopts(Socket, [{active, once}]),
-      {noreply, {Socket, []}};
+      {noreply, {Socket, Queue}};
     ok -> check_receive(Socket, Rest);
     Resp -> Resp
   end.
