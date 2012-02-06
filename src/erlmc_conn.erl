@@ -51,11 +51,11 @@ start_link([Host, Port]) ->
 %%--------------------------------------------------------------------
 init([Host, Port]) ->
 	case gen_tcp:connect(Host, Port, [binary, {packet, 0}, {active, once}]) of
-        {ok, Socket} -> 
+    {ok, Socket} -> 
 			{ok, {Socket, []}};
-        Error -> 
+    Error -> 
 			exit(Error)
-    end.
+  end.
 
 %%--------------------------------------------------------------------
 %% Function: %% handle_call(Request, From, State) -> {reply, Reply, State} |
@@ -68,8 +68,9 @@ init([Host, Port]) ->
 %% @hidden
 %%--------------------------------------------------------------------    
 handle_call({get, Key}, From, {Socket, Queue}) ->
-  send(Socket, #request{op_code=?OP_GetK, key=list_to_binary(Key)}),
-  {noreply, {Socket, Queue ++ [{get, Key, From}]}};
+  BKey = list_to_binary(Key),
+  send(Socket, #request{op_code=?OP_GetK, key=BKey}),
+  {noreply, {Socket, Queue ++ [{get, BKey, From}]}};
 % 
 handle_call({get_many, []}, _From, Socket) -> 
   {reply, [], Socket};
@@ -288,11 +289,11 @@ recv_queued_response({get, Key, From}, Socket, Timeout) ->
   case recv(Socket,Timeout) of
     {error, timeout} -> {error, timeout};
     {error, Err} -> {stop, Err, {error, Err}, Socket};
-    #response{key=Key1, value=Value} ->
-      case binary_to_list(Key1) of
-        Key -> gen_server:reply(From, Value);
-        _ -> gen_server:reply(From, <<>>)
-      end,
+    #response{key=Key, value=Value} -> 
+      gen_server:reply(From, Value),
+      ok;
+    _ -> 
+      gen_server:reply(From, <<>>),
       ok
 	end;
 recv_queued_response({get_many, From}, Socket, Timeout) ->
