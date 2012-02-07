@@ -34,7 +34,8 @@
 -export([get/1, get/2, get_many/1, add/2, add/3, set/2, set/3, 
 		 replace/2, replace/3, delete/1, increment/4, decrement/4,
 		 append/2, prepend/2, stats/0, stats/2, flush/0, flush/1, quit/0, 
-		 setq/2, setq/3, deleteq/1, replaceq/2, replaceq/3, version/0]).
+		 setq/2, setq/3, deleteq/1, replaceq/2, replaceq/3, incrementq/4, 
+     decrementq/4, version/0]).
 
 -include("erlmc.hrl").
 
@@ -155,9 +156,17 @@ increment(Key0, Value, Initial, Expiration) when is_integer(Value), is_integer(I
 	Key = package_key(Key0),
     call(map_key(Key), {increment, Key, Value, Initial, Expiration}, ?TIMEOUT).
 
+incrementq(Key0, Value, Initial, Expiration) when is_integer(Value), is_integer(Initial), is_integer(Expiration) ->
+	Key = package_key(Key0),
+    gen_server:cast(map_key(Key), {incrementq, Key, Value, Initial, Expiration}).
+
 decrement(Key0, Value, Initial, Expiration) when is_integer(Value), is_integer(Initial), is_integer(Expiration) ->
 	Key = package_key(Key0),
     call(map_key(Key), {decrement, Key, Value, Initial, Expiration}, ?TIMEOUT).
+
+decrementq(Key0, Value, Initial, Expiration) when is_integer(Value), is_integer(Initial), is_integer(Expiration) ->
+	Key = package_key(Key0),
+    gen_server:cast(map_key(Key), {decrementq, Key, Value, Initial, Expiration}).
 
 append(Key0, Value) when is_binary(Value) ->
 	Key = package_key(Key0),

@@ -33,6 +33,10 @@ main(_) ->
 	    etap:is(erlmc:get("Hello"), <<"$$$World2!!!">>, "get ok"),
 	    etap:is(erlmc:delete("Hello"), <<>>, "delete ok"),
 	    etap:is(erlmc:get("Hello"), <<>>, "get ok"),
+	    etap:is(erlmc:increment("inc1", 1, 1, 0), <<1:64>>, "increment ok"),
+	    etap:is(erlmc:incrementq("inc1", 1, 1, 0), ok, "incrementq ok"),
+	    etap:is(erlmc:decrementq("inc1", 1, 1, 0), ok, "decrementq ok"),
+	    etap:is(erlmc:decrement("inc1", 1, 1, 0), <<0:64>>, "decrement ok"),
 
 	    erlmc:set("One", <<"A">>),
 	    erlmc:set("Two", <<"B">>),

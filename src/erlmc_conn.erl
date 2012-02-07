@@ -162,6 +162,16 @@ handle_cast({replaceq, Key, Value, Expiration}, {Socket, Queue}) ->
     #request{op_code=?OP_Replace, extras = <<16#deadbeef:32, Expiration:32>>, key=list_to_binary(Key), value=Value}),
   {noreply, {Socket, Queue ++ [undefined]}};
 %
+handle_cast({incrementq, Key, Value, Initial, Expiration}, {Socket, Queue}) ->
+	send(Socket, 
+    #request{op_code=?OP_Increment, extras = <<Value:64, Initial:64, Expiration:32>>, key=list_to_binary(Key)}),
+  {noreply, {Socket, Queue ++[undefined]}};
+%
+handle_cast({decrementq, Key, Value, Initial, Expiration}, {Socket, Queue}) ->
+	send(Socket, 
+    #request{op_code=?OP_Decrement, extras = <<Value:64, Initial:64, Expiration:32>>, key=list_to_binary(Key)}),
+  {noreply, {Socket, Queue ++[undefined]}};
+%
 handle_cast(_Message, State) -> {noreply, State}.
 
 %%--------------------------------------------------------------------
