@@ -354,7 +354,7 @@ unique_connection(Host, Port) ->
       unique_connection(Host, Port, length(Pids))
   end.
 unique_connection(Host, Port, RandBase) ->
-  TRand = crypto:rand_uniform(1, RandBase),
+  TRand = crypto:rand_uniform(1, RandBase + 1),
   case ets:select(erlmc_connections, [{{{Host, Port}, '$1'},[],['$$']}], TRand) of
     {[[Pid]|_],_} -> Pid;
     '$end_of_table' ->
