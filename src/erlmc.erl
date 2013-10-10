@@ -264,10 +264,18 @@ loop() ->
 		{'EXIT', Pid, Err} ->
 			case ets:match(erlmc_connections, {'$1', Pid}) of
 				[[{Host, Port}]] -> 
+				  error_logger:info_msg("Removing connection from pool - no connection found for host ~p pid ~p ~n", [{Host, Port}, Pid]),
 					ets:delete_object(erlmc_connections, {{Host, Port}, Pid}),
           update_connections_for_server(Host, Port, {3, -1, 0, 0}),
 					case Err of
-						shutdown -> ok;
+						shutdown -> 
+						  case ets:lookup(erlmc_connections, {Host, Port}) of
+						    [] -> % no more connection left to server 
+        				  error_logger:info_msg("Removing server from pool - no connections left ~p ~n", [{Host, Port}]),
+						      remove_server(Host, Port);
+						    _ -> ok
+						  end,
+						  ok;
 						_ -> start_connection(Host, Port)
 					end;
 				_ -> 
